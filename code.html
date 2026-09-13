@@ -1,168 +1,1104 @@
-'use client';
+================================================
 
-import React, { useState } from 'react';
-import { Calendar, User, Clock, CreditCard, XCircle, CheckCircle, Hotel } from 'lucide-react';
+const express = require("express");
+const cors = require("cors");
+const fs = require("fs");
+const path = require("path");
+
+const app = express();
+const PORT = 5000;
+
+app.use(cors());
+app.use(express.json());
+
+const DATA_DIR = path.join(__dirname, "data");
+const DATA_FILE = path.join(DATA_DIR, "hotel-data.json");
+
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+
+const defaultData = {
+  bookings: [
+    {
+      id: "b1",
+      bookingCode: "IUBAT-2026-001042",
+      customerName: "Tanvir Ahmed",
+      customerEmail: "tanvir@example.com",
+      roomName: "Deluxe King Room",
+      checkIn: "2026-09-10",
+      checkOut: "2026-09-13",
+      guests: 2,
+      totalAmount: 19500,
+      status: "CONFIRMED"
+    },
+    {
+      id: "b2",
+      bookingCode: "IUBAT-2026-000811",
+      customerName: "Nusrat Jahan",
+      customerEmail: "nusrat@example.com",
+      roomName: "Royal Family Suite",
+      checkIn: "2026-05-01",
+      checkOut: "2026-05-03",
+      guests: 4,
+      totalAmount: 25000,
+      status: "COMPLETED"
+    }
+  ],
+  rooms: [
+    {
+      id: "r1",
+      name: "Deluxe King Room",
+      price: 6500,
+      capacity: 2,
+      available: true
+    },
+    {
+      id: "r2",
+      name: "Royal Family Suite",
+      price: 12500,
+      capacity: 4,
+      available: true
+    },
+    {
+      id: "r3",
+      name: "Executive Twin Room",
+      price: 8000,
+      capacity: 3,
+      available: true
+    }
+  ],
+  reviews: []
+};
+
+if (!fs.existsSync(DATA_FILE)) {
+  fs.writeFileSync(DATA_FILE, JSON.stringify(defaultData, null, 2));
+}
+
+function readData() {
+  return JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
+}
+
+function writeData(data) {
+  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+}
+
+
+app.get("/api/health", (req, res) => {
+  res.json({
+    success: true,
+    message: "Hotel Reservation backend is running"
+  });
+});
+
+app.get("/api/bookings", (req, res) => {
+  const data = readData();
+  res.json(data.bookings);
+});
+
+app.get("/api/bookings/:id", (req, res) => {
+  const data = readData();
+  const booking = data.bookings.find(b => b.id === req.params.id);
+
+  if (!booking) {
+    return res.status(404).json({
+      success: false,
+      message: "Booking not found"
+    });
+  }
+
+  res.json(booking);
+});
+
+app.post("/api/bookings", (req, res) => {
+  const data = readData();
+
+  const {
+    customerName,
+    customerEmail,
+    roomName,
+    checkIn,
+    checkOut,
+    guests,
+    totalAmount
+  } = req.body;
+
+  if (
+    !customerName ||
+    !customerEmail ||
+    !roomName ||
+    !checkIn ||
+    !checkOut ||
+    !guests ||
+    totalAmount === undefined
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: "All booking fields are required"
+    });
+  }
+
+  const newBooking = {
+    id: "b" + Date.now(),
+    bookingCode:
+      "IUBAT-" +
+      new Date().getFullYear() +
+      "-" +
+      Math.floor(100000 + Math.random() * 900000),
+    customerName,
+    customerEmail,
+    roomName,
+    checkIn,
+    checkOut,
+    guests: Number(guests),
+    totalAmount: Number(totalAmount),
+    status: "CONFIRMED"
+  };
+
+  data.bookings.push(newBooking);
+  writeData(data);
+
+  res.status(201).json({
+    success: true,
+    message: "Booking created successfully",
+    booking: newBooking
+  });
+});
+
+app.patch("/api/bookings/:id/cancel", (req, res) => {
+  const data = readData();
+
+  const booking = data.bookings.find(b => b.id === req.params.id);
+
+  if (!booking) {
+    return res.status(404).json({
+      success: false,
+      message: "Booking not found"
+    });
+  }
+
+  booking.status = "CANCELLED";
+  writeData(data);
+
+  res.json({
+    success: true,
+    message: "Booking cancelled successfully",
+    booking
+  });
+});
+
+
+
+app.get("/api/admin/dashboard", (req, res) => {
+  const data = readData();
+
+  const totalBookings = data.bookings.length;
+
+  const today = new Date().toISOString().split("T")[0];
+
+  const todayCheckIns = data.bookings.filter(
+    b => b.checkIn === today && b.status !== "CANCELLED"
+  ).length;
+
+  const availableRooms = data.rooms.filter(
+    room => room.available
+  ).length;
+
+  const confirmedOrCompleted = data.bookings.filter(
+    b => b.status === "CONFIRMED" || b.status === "COMPLETED"
+  );
+
+  const totalRevenue = confirmedOrCompleted.reduce(
+    (sum, booking) => sum + Number(booking.totalAmount),
+    0
+  );
+
+  const averageRating =
+    data.reviews.length === 0
+      ? 0
+      : data.reviews.reduce((sum, r) => sum + r.rating, 0) /
+        data.reviews.length;
+
+  res.json({
+    success: true,
+    stats: {
+      totalBookings,
+      todayCheckIns,
+      availableRooms,
+      totalRevenue,
+      totalReviews: data.reviews.length,
+      averageRating: Number(averageRating.toFixed(2))
+    },
+    recentBookings: data.bookings.slice(-10).reverse()
+  });
+});
+
+app.get("/api/rooms", (req, res) => {
+  const data = readData();
+  res.json(data.rooms);
+});
+
+app.post("/api/rooms", (req, res) => {
+  const data = readData();
+
+  const { name, price, capacity } = req.body;
+
+  if (!name || !price || !capacity) {
+    return res.status(400).json({
+      success: false,
+      message: "Room name, price and capacity are required"
+    });
+  }
+
+  const room = {
+    id: "r" + Date.now(),
+    name,
+    price: Number(price),
+    capacity: Number(capacity),
+    available: true
+  };
+
+  data.rooms.push(room);
+  writeData(data);
+
+  res.status(201).json({
+    success: true,
+    room
+  });
+});
+
+app.get("/api/reviews", (req, res) => {
+  const data = readData();
+
+  const reviews = [...data.reviews].sort(
+    (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+  );
+
+  res.json(reviews);
+});
+
+app.post("/api/reviews", (req, res) => {
+  const data = readData();
+
+  const {
+    bookingId,
+    customerName,
+    customerEmail,
+    roomName,
+    rating,
+    comment
+  } = req.body;
+
+  const numericRating = Number(rating);
+
+  if (
+    !bookingId ||
+    !customerName ||
+    !customerEmail ||
+    !roomName ||
+    !numericRating ||
+    numericRating < 1 ||
+    numericRating > 5
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: "Valid booking, customer information and rating are required"
+    });
+  }
+
+  const alreadyReviewed = data.reviews.some(
+    review => review.bookingId === bookingId
+  );
+
+  if (alreadyReviewed) {
+    return res.status(409).json({
+      success: false,
+      message: "This booking has already submitted a review"
+    });
+  }
+
+  const review = {
+    id: "review-" + Date.now(),
+    bookingId,
+    customerName,
+    customerEmail,
+    roomName,
+    rating: numericRating,
+    comment: comment || "",
+    createdAt: new Date().toISOString()
+  };
+
+  data.reviews.push(review);
+  writeData(data);
+
+  res.status(201).json({
+    success: true,
+    message: "Rating submitted successfully",
+    review
+  });
+});
+
+
+
+app.get("/api/admin/sales-report", (req, res) => {
+  const data = readData();
+
+  const { from, to } = req.query;
+
+  let bookings = data.bookings.filter(
+    booking =>
+      booking.status === "CONFIRMED" ||
+      booking.status === "COMPLETED"
+  );
+
+  if (from) {
+    bookings = bookings.filter(b => b.checkIn >= from);
+  }
+
+  if (to) {
+    bookings = bookings.filter(b => b.checkIn <= to);
+  }
+
+  const totalSales = bookings.reduce(
+    (sum, booking) => sum + Number(booking.totalAmount),
+    0
+  );
+
+  const totalBookings = bookings.length;
+
+  const averageBookingValue =
+    totalBookings === 0 ? 0 : totalSales / totalBookings;
+
+  const roomSales = {};
+
+  bookings.forEach(booking => {
+    if (!roomSales[booking.roomName]) {
+      roomSales[booking.roomName] = {
+        bookings: 0,
+        revenue: 0
+      };
+    }
+
+    roomSales[booking.roomName].bookings += 1;
+    roomSales[booking.roomName].revenue += Number(
+      booking.totalAmount
+    );
+  });
+
+  res.json({
+    success: true,
+    period: {
+      from: from || null,
+      to: to || null
+    },
+    summary: {
+      totalBookings,
+      totalSales,
+      averageBookingValue: Number(averageBookingValue.toFixed(2))
+    },
+    roomSales,
+    bookings
+  });
+});
+
+
+
+app.listen(PORT, () => {
+  console.log(
+    `Hotel Reservation Backend running at http://localhost:${PORT}`
+  );
+});
+
+
+================================================
+
+================================================
+
+{
+  "bookings": [
+    {
+      "id": "b1",
+      "bookingCode": "IUBAT-2026-001042",
+      "customerName": "Tanvir Ahmed",
+      "customerEmail": "tanvir@example.com",
+      "roomName": "Deluxe King Room",
+      "checkIn": "2026-09-10",
+      "checkOut": "2026-09-13",
+      "guests": 2,
+      "totalAmount": 19500,
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "b2",
+      "bookingCode": "IUBAT-2026-000811",
+      "customerName": "Nusrat Jahan",
+      "customerEmail": "nusrat@example.com",
+      "roomName": "Royal Family Suite",
+      "checkIn": "2026-05-01",
+      "checkOut": "2026-05-03",
+      "guests": 4,
+      "totalAmount": 25000,
+      "status": "COMPLETED"
+    }
+  ],
+  "rooms": [
+    {
+      "id": "r1",
+      "name": "Deluxe King Room",
+      "price": 6500,
+      "capacity": 2,
+      "available": true
+    },
+    {
+      "id": "r2",
+      "name": "Royal Family Suite",
+      "price": 12500,
+      "capacity": 4,
+      "available": true
+    },
+    {
+      "id": "r3",
+      "name": "Executive Twin Room",
+      "price": 8000,
+      "capacity": 3,
+      "available": true
+    }
+  ],
+  "reviews": []
+}
+
+
+================================================
+
+================================================
+
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
+
+export async function getBookings() {
+  const response = await fetch(`${API_URL}/bookings`, {
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to load bookings");
+  }
+
+  return response.json();
+}
+
+export async function cancelBooking(id: string) {
+  const response = await fetch(`${API_URL}/bookings/${id}/cancel`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json"
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to cancel booking");
+  }
+
+  return response.json();
+}
+
+export async function getAdminDashboard() {
+  const response = await fetch(`${API_URL}/admin/dashboard`, {
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to load admin dashboard");
+  }
+
+  return response.json();
+}
+
+export async function getReviews() {
+  const response = await fetch(`${API_URL}/reviews`, {
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to load reviews");
+  }
+
+  return response.json();
+}
+
+export async function submitReview(review: {
+  bookingId: string;
+  customerName: string;
+  customerEmail: string;
+  roomName: string;
+  rating: number;
+  comment: string;
+}) {
+  const response = await fetch(`${API_URL}/reviews`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(review)
+  });
+
+  const result = await response.json();
+
+  if (!response.ok) {
+    throw new Error(result.message || "Failed to submit review");
+  }
+
+  return result;
+}
+
+export async function getSalesReport(from?: string, to?: string) {
+  const params = new URLSearchParams();
+
+  if (from) params.append("from", from);
+  if (to) params.append("to", to);
+
+  const response = await fetch(
+    `${API_URL}/admin/sales-report?${params.toString()}`,
+    {
+      cache: "no-store"
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error("Failed to generate sales report");
+  }
+
+  return response.json();
+}
+
+
+================================================
+
+================================================
+
+"use client";
+
+import React, { useEffect, useState } from "react";
+import {
+  Calendar,
+  User,
+  CreditCard,
+  XCircle,
+  Hotel,
+  Star
+} from "lucide-react";
+import { cancelBooking, getBookings, submitReview } from "@/lib/api";
 
 interface Booking {
   id: string;
   bookingCode: string;
-  roomName: { en: string; bn: string };
+  customerName: string;
+  customerEmail: string;
+  roomName: string;
   checkIn: string;
   checkOut: string;
   guests: number;
   totalAmount: number;
-  status: 'CONFIRMED' | 'PENDING' | 'CANCELLED' | 'COMPLETED';
+  status:
+    | "CONFIRMED"
+    | "PENDING"
+    | "CANCELLED"
+    | "COMPLETED";
 }
 
-const INITIAL_BOOKINGS: Booking[] = [
-  {
-    id: 'b1',
-    bookingCode: 'IUBAT-2026-001042',
-    roomName: { en: 'Deluxe King Room', bn: 'ডেলুক্স কিং রুম' },
-    checkIn: '2026-09-10',
-    checkOut: '2026-09-13',
-    guests: 2,
-    totalAmount: 19500,
-    status: 'CONFIRMED',
-  },
-  {
-    id: 'b2',
-    bookingCode: 'IUBAT-2026-000811',
-    roomName: { en: 'Royal Family Suite', bn: 'রয়েল ফ্যামিলি স্যুট' },
-    checkIn: '2026-05-01',
-    checkOut: '2026-05-03',
-    guests: 4,
-    totalAmount: 25000,
-    status: 'COMPLETED',
-  },
-];
+export default function GuestDashboard() {
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [loading, setLoading] = useState(true);
 
-export default function GuestDashboard({ params }: { params: { lang: 'en' | 'bn' } }) {
-  const lang = params.lang === 'bn' ? 'bn' : 'en';
-  const [bookings, setBookings] = useState<Booking[]>(INITIAL_BOOKINGS);
+  const [selectedBooking, setSelectedBooking] =
+    useState<Booking | null>(null);
 
-  const cancelBooking = (id: string) => {
-    if (confirm(lang === 'bn' ? 'আপনি কি নিশ্চিত যে বুকিংটি বাতিল করতে চান?' : 'Are you sure you want to cancel this booking?')) {
-      setBookings((prev) =>
-        prev.map((b) => (b.id === id ? { ...b, status: 'CANCELLED' } : b))
+  const [rating, setRating] = useState(5);
+  const [comment, setComment] = useState("");
+  const [reviewMessage, setReviewMessage] = useState("");
+
+  useEffect(() => {
+    loadBookings();
+  }, []);
+
+  async function loadBookings() {
+    try {
+      const data = await getBookings();
+      setBookings(data);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleCancel(id: string) {
+    const confirmed = window.confirm(
+      "Are you sure you want to cancel this booking?"
+    );
+
+    if (!confirmed) return;
+
+    try {
+      await cancelBooking(id);
+      await loadBookings();
+    } catch (error) {
+      alert("Unable to cancel booking");
+    }
+  }
+
+  async function handleReviewSubmit(
+    event: React.FormEvent
+  ) {
+    event.preventDefault();
+
+    if (!selectedBooking) return;
+
+    try {
+      await submitReview({
+        bookingId: selectedBooking.id,
+        customerName: selectedBooking.customerName,
+        customerEmail: selectedBooking.customerEmail,
+        roomName: selectedBooking.roomName,
+        rating,
+        comment
+      });
+
+      setReviewMessage(
+        "Thank you! Your rating has been submitted."
+      );
+
+      setComment("");
+
+      setTimeout(() => {
+        setSelectedBooking(null);
+        setReviewMessage("");
+      }, 1500);
+    } catch (error: any) {
+      setReviewMessage(
+        error.message || "Unable to submit rating."
       );
     }
-  };
+  }
+
+  if (loading) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 py-12 text-slate-300">
+        Loading bookings...
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-12">
+
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 mb-8 flex flex-col md:flex-row items-center justify-between gap-4">
+
         <div className="flex items-center gap-4">
+
           <div className="w-16 h-16 bg-amber-600/20 border border-amber-500/40 rounded-full flex items-center justify-center text-amber-500">
             <User className="w-8 h-8" />
           </div>
+
           <div>
-            <h1 className="text-xl font-bold text-slate-100">Tanvir Ahmed</h1>
-            <p className="text-xs text-slate-400">tanvir@example.com | +880 1712-345678</p>
+            <h1 className="text-xl font-bold text-slate-100">
+              Tanvir Ahmed
+            </h1>
+
+            <p className="text-xs text-slate-400">
+              tanvir@example.com | +880 1712-345678
+            </p>
           </div>
+
         </div>
+
         <div className="bg-slate-950 px-4 py-2 rounded-lg border border-slate-800 text-xs text-amber-400">
-          {lang === 'bn' ? 'বুকিং সংখ্যা: ' : 'Total Bookings: '} {bookings.length}
+          Total Bookings: {bookings.length}
         </div>
+
       </div>
 
       <h2 className="text-lg font-bold text-slate-100 mb-6 flex items-center gap-2">
         <Hotel className="w-5 h-5 text-amber-500" />
-        <span>{lang === 'bn' ? 'আমার বুকিং ইতিহাস' : 'My Reservation History'}</span>
+        <span>My Reservation History</span>
       </h2>
 
       <div className="space-y-4">
+
         {bookings.map((b) => (
+
           <div
             key={b.id}
-            className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 hover:border-slate-700 transition"
+            className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4"
           >
+
             <div className="space-y-2">
+
               <div className="flex items-center gap-3">
+
                 <span className="text-xs font-mono bg-slate-950 text-amber-400 px-2.5 py-1 rounded border border-slate-800">
                   {b.bookingCode}
                 </span>
+
                 <span
                   className={`text-xs px-2.5 py-0.5 rounded-full font-semibold ${
-                    b.status === 'CONFIRMED'
-                      ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
-                      : b.status === 'CANCELLED'
-                      ? 'bg-red-950 text-red-400 border border-red-800'
-                      : 'bg-slate-800 text-slate-300'
+                    b.status === "CONFIRMED"
+                      ? "bg-emerald-950 text-emerald-400"
+                      : b.status === "CANCELLED"
+                      ? "bg-red-950 text-red-400"
+                      : "bg-slate-800 text-slate-300"
                   }`}
                 >
                   {b.status}
                 </span>
+
               </div>
-              <h3 className="font-bold text-slate-100 text-base">{b.roomName[lang]}</h3>
+
+              <h3 className="font-bold text-slate-100 text-base">
+                {b.roomName}
+              </h3>
+
               <div className="flex flex-wrap items-center gap-4 text-xs text-slate-400">
+
                 <span className="flex items-center gap-1">
-                  <Calendar className="w-3.5 h-3.5 text-amber-500" /> {b.checkIn} → {b.checkOut}
+                  <Calendar className="w-3.5 h-3.5 text-amber-500" />
+                  {b.checkIn} → {b.checkOut}
                 </span>
+
                 <span className="flex items-center gap-1">
-                  <User className="w-3.5 h-3.5 text-amber-500" /> {b.guests} {lang === 'bn' ? 'জন' : 'Guests'}
+                  <User className="w-3.5 h-3.5 text-amber-500" />
+                  {b.guests} Guests
                 </span>
+
                 <span className="flex items-center gap-1">
-                  <CreditCard className="w-3.5 h-3.5 text-amber-500" /> ৳{b.totalAmount} BDT
+                  <CreditCard className="w-3.5 h-3.5 text-amber-500" />
+                  ৳{b.totalAmount.toLocaleString()} BDT
                 </span>
+
               </div>
+
             </div>
 
-            {b.status === 'CONFIRMED' && (
-              <button
-                onClick={() => cancelBooking(b.id)}
-                className="bg-red-950/60 hover:bg-red-900 text-red-400 border border-red-800/60 text-xs px-4 py-2 rounded-lg transition flex items-center gap-1.5"
-              >
-                <XCircle className="w-4 h-4" />
-                <span>{lang === 'bn' ? 'বুকিং বাতিল করুন' : 'Cancel Booking'}</span>
-              </button>
-            )}
+            <div className="flex gap-2">
+
+              {b.status === "COMPLETED" && (
+                <button
+                  onClick={() => setSelectedBooking(b)}
+                  className="bg-amber-600 hover:bg-amber-500 text-white text-xs px-4 py-2 rounded-lg flex items-center gap-1.5"
+                >
+                  <Star className="w-4 h-4" />
+                  Rate Stay
+                </button>
+              )}
+
+              {b.status === "CONFIRMED" && (
+                <button
+                  onClick={() => handleCancel(b.id)}
+                  className="bg-red-950/60 hover:bg-red-900 text-red-400 border border-red-800/60 text-xs px-4 py-2 rounded-lg flex items-center gap-1.5"
+                >
+                  <XCircle className="w-4 h-4" />
+                  Cancel Booking
+                </button>
+              )}
+
+            </div>
+
           </div>
+
         ))}
+
       </div>
+
+      {selectedBooking && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-md">
+
+            <h3 className="text-xl font-bold text-white mb-2">
+              Rate Your Stay
+            </h3>
+
+            <p className="text-sm text-slate-400 mb-5">
+              {selectedBooking.roomName}
+            </p>
+
+            <form onSubmit={handleReviewSubmit}>
+
+              <label className="text-sm text-slate-300">
+                Rating
+              </label>
+
+              <div className="flex gap-2 my-3">
+
+                {[1, 2, 3, 4, 5].map((value) => (
+
+                  <button
+                    type="button"
+                    key={value}
+                    onClick={() => setRating(value)}
+                    className="text-2xl"
+                  >
+                    <Star
+                      className={
+                        value <= rating
+                          ? "fill-amber-400 text-amber-400"
+                          : "text-slate-600"
+                      }
+                    />
+                  </button>
+
+                ))}
+
+              </div>
+
+              <textarea
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                placeholder="Write your review..."
+                className="w-full h-28 rounded-lg bg-slate-950 border border-slate-700 p-3 text-sm text-white outline-none"
+              />
+
+              {reviewMessage && (
+                <p className="text-sm text-amber-400 mt-3">
+                  {reviewMessage}
+                </p>
+              )}
+
+              <div className="flex justify-end gap-2 mt-5">
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedBooking(null)}
+                  className="px-4 py-2 rounded-lg bg-slate-800 text-slate-300"
+                >
+                  Close
+                </button>
+
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-lg bg-amber-600 text-white"
+                >
+                  Submit Rating
+                </button>
+
+              </div>
+
+            </form>
+
+          </div>
+
+        </div>
+      )}
+
     </div>
   );
 }
 
 
-'use client';
+================================================
 
-import React, { useState } from 'react';
-import { Building, BookOpen, Users, DollarSign, Plus, CheckCircle, XCircle } from 'lucide-react';
+================================================
 
-export default function AdminDashboard({ params }: { params: { lang: 'en' | 'bn' } }) {
-  const lang = params.lang === 'bn' ? 'bn' : 'en';
+"use client";
 
-  const [stats] = useState({
-    totalBookings: 28,
-    todayCheckIns: 4,
-    availableRooms: 12,
-    totalRevenue: 245000,
+import React, { useEffect, useState } from "react";
+import {
+  Building,
+  BookOpen,
+  Users,
+  DollarSign,
+  Plus,
+  Star,
+  FileText,
+  Download
+} from "lucide-react";
+
+import {
+  getAdminDashboard,
+  getReviews,
+  getSalesReport
+} from "@/lib/api";
+
+interface Booking {
+  id: string;
+  bookingCode: string;
+  customerName: string;
+  roomName: string;
+  checkIn: string;
+  checkOut: string;
+  totalAmount: number;
+  status: string;
+}
+
+interface Review {
+  id: string;
+  customerName: string;
+  roomName: string;
+  rating: number;
+  comment: string;
+  createdAt: string;
+}
+
+interface DashboardStats {
+  totalBookings: number;
+  todayCheckIns: number;
+  availableRooms: number;
+  totalRevenue: number;
+  totalReviews: number;
+  averageRating: number;
+}
+
+export default function AdminDashboard() {
+
+  const [stats, setStats] = useState<DashboardStats>({
+    totalBookings: 0,
+    todayCheckIns: 0,
+    availableRooms: 0,
+    totalRevenue: 0,
+    totalReviews: 0,
+    averageRating: 0
   });
+
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [reviews, setReviews] = useState<Review[]>([]);
+
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+
+  const [report, setReport] = useState<any>(null);
+
+  const [roomName, setRoomName] = useState("");
+  const [roomPrice, setRoomPrice] = useState("");
+  const [roomCapacity, setRoomCapacity] = useState("");
+
+  useEffect(() => {
+    loadDashboard();
+    loadReviews();
+  }, []);
+
+  async function loadDashboard() {
+    try {
+      const result = await getAdminDashboard();
+
+      setStats(result.stats);
+      setBookings(result.recentBookings);
+    } catch (error) {
+      console.error(error);
+    }
+  }
+
+  async function loadReviews() {
+    try {
+      const data = await getReviews();
+      setReviews(data);
+    } catch (error) {
+      console.error(error);
+    }
+  }
+
+  async function generateSalesReport() {
+    try {
+      const result = await getSalesReport(from, to);
+      setReport(result);
+    } catch (error) {
+      alert("Could not generate sales report");
+    }
+  }
+
+  function downloadCSV() {
+
+    if (!report) {
+      alert("Generate the report first");
+      return;
+    }
+
+    const rows = [
+      [
+        "Booking Code",
+        "Customer",
+        "Room",
+        "Check In",
+        "Check Out",
+        "Amount",
+        "Status"
+      ],
+      ...report.bookings.map((b: Booking) => [
+        b.bookingCode,
+        b.customerName,
+        b.roomName,
+        b.checkIn,
+        b.checkOut,
+        b.totalAmount,
+        b.status
+      ])
+    ];
+
+    const csv = rows
+      .map(row =>
+        row
+          .map(value =>
+            `"${String(value).replace(/"/g, '""')}"`
+          )
+          .join(",")
+      )
+      .join("\n");
+
+    const blob = new Blob([csv], {
+      type: "text/csv;charset=utf-8;"
+    });
+
+    const url = URL.createObjectURL(blob);
+
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "hotel-sales-report.csv";
+    link.click();
+
+    URL.revokeObjectURL(url);
+  }
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-10">
+
       <div className="flex items-center justify-between mb-8">
+
         <div>
           <h1 className="text-2xl font-bold text-slate-100">
-            {lang === 'bn' ? 'অ্যাডমিন ড্যাশবোর্ড' : 'Admin Management Dashboard'}
+            Admin Management Dashboard
           </h1>
-          <p className="text-xs text-slate-400 mt-1">IUBAT Hotel & Resort Control Center</p>
+
+          <p className="text-xs text-slate-400 mt-1">
+            IUBAT Hotel & Resort Control Center
+          </p>
         </div>
-        <button className="bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold px-4 py-2.5 rounded-lg flex items-center gap-2 transition">
+
+        <button
+          onClick={() => {
+            document
+              .getElementById("room-section")
+              ?.scrollIntoView({ behavior: "smooth" });
+          }}
+          className="bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold px-4 py-2.5 rounded-lg flex items-center gap-2"
+        >
           <Plus className="w-4 h-4" />
-          <span>{lang === 'bn' ? 'নতুন রুম যোগ করুন' : 'Add New Room'}</span>
+          Add New Room
         </button>
+
       </div>
 
-      {/* Overview Stats */}
+      {}
+
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
+
         <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl">
           <div className="flex items-center justify-between text-slate-400 text-xs mb-2">
             <span>Total Bookings</span>
             <BookOpen className="w-4 h-4 text-amber-500" />
           </div>
-          <div className="text-2xl font-extrabold text-slate-100">{stats.totalBookings}</div>
+
+          <div className="text-2xl font-extrabold text-slate-100">
+            {stats.totalBookings}
+          </div>
         </div>
 
         <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl">
@@ -170,7 +1106,10 @@ export default function AdminDashboard({ params }: { params: { lang: 'en' | 'bn'
             <span>Today's Check-ins</span>
             <Users className="w-4 h-4 text-amber-500" />
           </div>
-          <div className="text-2xl font-extrabold text-slate-100">{stats.todayCheckIns}</div>
+
+          <div className="text-2xl font-extrabold text-slate-100">
+            {stats.todayCheckIns}
+          </div>
         </div>
 
         <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl">
@@ -178,7 +1117,10 @@ export default function AdminDashboard({ params }: { params: { lang: 'en' | 'bn'
             <span>Available Rooms</span>
             <Building className="w-4 h-4 text-amber-500" />
           </div>
-          <div className="text-2xl font-extrabold text-slate-100">{stats.availableRooms}</div>
+
+          <div className="text-2xl font-extrabold text-slate-100">
+            {stats.availableRooms}
+          </div>
         </div>
 
         <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl">
@@ -186,18 +1128,64 @@ export default function AdminDashboard({ params }: { params: { lang: 'en' | 'bn'
             <span>Total Revenue</span>
             <DollarSign className="w-4 h-4 text-amber-500" />
           </div>
-          <div className="text-2xl font-extrabold text-amber-400">৳{stats.totalRevenue.toLocaleString()} BDT</div>
+
+          <div className="text-2xl font-extrabold text-amber-400">
+            ৳{stats.totalRevenue.toLocaleString()} BDT
+          </div>
         </div>
+
       </div>
 
-      {/* Booking List Table */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
-        <div className="p-4 border-b border-slate-800 font-bold text-sm text-slate-200">
-          {lang === 'bn' ? 'সাম্প্রতিক বুকিং সমুহ' : 'Recent Reservations'}
+      {}
+
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 mb-8">
+
+        <div className="flex items-center gap-2 mb-3">
+          <Star className="w-5 h-5 text-amber-400 fill-amber-400" />
+          <h2 className="font-bold text-white">
+            Customer Rating Summary
+          </h2>
         </div>
+
+        <div className="flex gap-8">
+
+          <div>
+            <p className="text-xs text-slate-400">
+              Average Rating
+            </p>
+
+            <p className="text-3xl font-bold text-amber-400">
+              {stats.averageRating}/5
+            </p>
+          </div>
+
+          <div>
+            <p className="text-xs text-slate-400">
+              Total Reviews
+            </p>
+
+            <p className="text-3xl font-bold text-white">
+              {stats.totalReviews}
+            </p>
+          </div>
+
+        </div>
+
+      </div>
+
+      {}
+
+      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden mb-8">
+
+        <div className="p-4 border-b border-slate-800 font-bold text-sm text-slate-200">
+          Recent Reservations
+        </div>
+
         <div className="overflow-x-auto">
+
           <table className="w-full text-left text-xs text-slate-300">
-            <thead className="bg-slate-950 text-slate-400 uppercase font-semibold border-b border-slate-800">
+
+            <thead className="bg-slate-950 text-slate-400 uppercase font-semibold">
               <tr>
                 <th className="p-3">Booking ID</th>
                 <th className="p-3">Guest</th>
@@ -207,75 +1195,298 @@ export default function AdminDashboard({ params }: { params: { lang: 'en' | 'bn'
                 <th className="p-3">Status</th>
               </tr>
             </thead>
+
             <tbody className="divide-y divide-slate-800">
-              <tr className="hover:bg-slate-800/50">
-                <td className="p-3 font-mono text-amber-400">IUBAT-2026-001042</td>
-                <td className="p-3">Tanvir Ahmed</td>
-                <td className="p-3">Deluxe King Room</td>
-                <td className="p-3">10 Sep - 13 Sep 2026</td>
-                <td className="p-3">৳19,500</td>
-                <td className="p-3">
-                  <span className="bg-emerald-950 text-emerald-400 px-2 py-0.5 rounded text-[10px] font-semibold">
-                    CONFIRMED
-                  </span>
-                </td>
-              </tr>
-              <tr className="hover:bg-slate-800/50">
-                <td className="p-3 font-mono text-amber-400">IUBAT-2026-000811</td>
-                <td className="p-3">Nusrat Jahan</td>
-                <td className="p-3">Royal Family Suite</td>
-                <td className="p-3">01 May - 03 May 2026</td>
-                <td className="p-3">৳25,000</td>
-                <td className="p-3">
-                  <span className="bg-slate-800 text-slate-400 px-2 py-0.5 rounded text-[10px] font-semibold">
-                    COMPLETED
-                  </span>
-                </td>
-              </tr>
+
+              {bookings.map((booking) => (
+
+                <tr
+                  key={booking.id}
+                  className="hover:bg-slate-800/50"
+                >
+
+                  <td className="p-3 font-mono text-amber-400">
+                    {booking.bookingCode}
+                  </td>
+
+                  <td className="p-3">
+                    {booking.customerName}
+                  </td>
+
+                  <td className="p-3">
+                    {booking.roomName}
+                  </td>
+
+                  <td className="p-3">
+                    {booking.checkIn} - {booking.checkOut}
+                  </td>
+
+                  <td className="p-3">
+                    ৳{booking.totalAmount.toLocaleString()}
+                  </td>
+
+                  <td className="p-3">
+                    <span className="bg-emerald-950 text-emerald-400 px-2 py-0.5 rounded text-[10px] font-semibold">
+                      {booking.status}
+                    </span>
+                  </td>
+
+                </tr>
+
+              ))}
+
             </tbody>
+
           </table>
+
         </div>
+
       </div>
+
+      {}
+
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 mb-8">
+
+        <div className="flex items-center gap-2 mb-5">
+          <FileText className="w-5 h-5 text-amber-500" />
+
+          <h2 className="text-lg font-bold text-white">
+            Sales Report
+          </h2>
+        </div>
+
+        <div className="grid md:grid-cols-3 gap-4 mb-5">
+
+          <div>
+            <label className="text-xs text-slate-400">
+              From Date
+            </label>
+
+            <input
+              type="date"
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+              className="mt-1 w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-sm text-white"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs text-slate-400">
+              To Date
+            </label>
+
+            <input
+              type="date"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+              className="mt-1 w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-sm text-white"
+            />
+          </div>
+
+          <div className="flex items-end">
+
+            <button
+              onClick={generateSalesReport}
+              className="w-full bg-amber-600 hover:bg-amber-500 text-white rounded-lg p-2.5 text-sm font-semibold flex items-center justify-center gap-2"
+            >
+              <FileText className="w-4 h-4" />
+              Generate Report
+            </button>
+
+          </div>
+
+        </div>
+
+        {report && (
+
+          <div className="border-t border-slate-800 pt-5">
+
+            <div className="grid md:grid-cols-3 gap-4 mb-5">
+
+              <div className="bg-slate-950 rounded-lg p-4">
+                <p className="text-xs text-slate-400">
+                  Total Sales
+                </p>
+
+                <p className="text-2xl font-bold text-amber-400">
+                  ৳{report.summary.totalSales.toLocaleString()}
+                </p>
+              </div>
+
+              <div className="bg-slate-950 rounded-lg p-4">
+                <p className="text-xs text-slate-400">
+                  Total Bookings
+                </p>
+
+                <p className="text-2xl font-bold text-white">
+                  {report.summary.totalBookings}
+                </p>
+              </div>
+
+              <div className="bg-slate-950 rounded-lg p-4">
+                <p className="text-xs text-slate-400">
+                  Average Booking Value
+                </p>
+
+                <p className="text-2xl font-bold text-white">
+                  ৳{report.summary.averageBookingValue.toLocaleString()}
+                </p>
+              </div>
+
+            </div>
+
+            <button
+              onClick={downloadCSV}
+              className="bg-emerald-700 hover:bg-emerald-600 text-white px-4 py-2.5 rounded-lg text-sm font-semibold flex items-center gap-2"
+            >
+              <Download className="w-4 h-4" />
+              Download CSV Report
+            </button>
+
+          </div>
+
+        )}
+
+      </div>
+
+      {}
+
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 mb-8">
+
+        <h2 className="text-lg font-bold text-white mb-5">
+          Customer Reviews
+        </h2>
+
+        <div className="space-y-4">
+
+          {reviews.length === 0 ? (
+
+            <p className="text-sm text-slate-400">
+              No customer reviews yet.
+            </p>
+
+          ) : (
+
+            reviews.map((review) => (
+
+              <div
+                key={review.id}
+                className="border border-slate-800 rounded-lg p-4"
+              >
+
+                <div className="flex justify-between">
+
+                  <div>
+
+                    <p className="font-semibold text-white">
+                      {review.customerName}
+                    </p>
+
+                    <p className="text-xs text-slate-400">
+                      {review.roomName}
+                    </p>
+
+                  </div>
+
+                  <div className="flex">
+
+                    {[1, 2, 3, 4, 5].map((star) => (
+
+                      <Star
+                        key={star}
+                        className={
+                          star <= review.rating
+                            ? "w-4 h-4 fill-amber-400 text-amber-400"
+                            : "w-4 h-4 text-slate-700"
+                        }
+                      />
+
+                    ))}
+
+                  </div>
+
+                </div>
+
+                {review.comment && (
+                  <p className="text-sm text-slate-300 mt-3">
+                    {review.comment}
+                  </p>
+                )}
+
+              </div>
+
+            ))
+
+          )}
+
+        </div>
+
+      </div>
+
+      {}
+
+      <div
+        id="room-section"
+        className="bg-slate-900 border border-slate-800 rounded-xl p-6"
+      >
+
+        <h2 className="text-lg font-bold text-white mb-5">
+          Add New Room
+        </h2>
+
+        <div className="grid md:grid-cols-3 gap-4">
+
+          <input
+            value={roomName}
+            onChange={(e) => setRoomName(e.target.value)}
+            placeholder="Room name"
+            className="bg-slate-950 border border-slate-700 rounded-lg p-3 text-sm text-white"
+          />
+
+          <input
+            type="number"
+            value={roomPrice}
+            onChange={(e) => setRoomPrice(e.target.value)}
+            placeholder="Price"
+            className="bg-slate-950 border border-slate-700 rounded-lg p-3 text-sm text-white"
+          />
+
+          <input
+            type="number"
+            value={roomCapacity}
+            onChange={(e) => setRoomCapacity(e.target.value)}
+            placeholder="Capacity"
+            className="bg-slate-950 border border-slate-700 rounded-lg p-3 text-sm text-white"
+          />
+
+        </div>
+
+        <p className="text-xs text-slate-500 mt-3">
+          Connect this form to POST /api/rooms to save new rooms.
+        </p>
+
+      </div>
+
     </div>
   );
 }
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
 
-:root {
-  --foreground-rgb: 255, 255, 255;
-  --background-start-rgb: 2, 6,23;
-  --background-end-rgb: 2, 6, 23;
-}
 
-body {
-  color: rgb(var(--foreground-rgb));
-  background: linear-gradient(
-      to bottom,
-      transparent,
-      rgb(var(--background-end-rgb))
-    )
-    rgb(var(--background-start-rgb));
-  font-family: Arial, Helvetica, sans-serif;
-}
+NEXT_PUBLIC_API_URL=http://localhost:5000/api
 
-/* Custom Scrollbar for Chat & Tables */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
 
-::-webkit-scrollbar-track {
-  background: #090d16;
-}
 
-::-webkit-scrollbar-thumb {
-  background: #1e293b;
-  border-radius: 4px;
-}
 
-::-webkit-scrollbar-thumb:hover {
-  background: #d97706;
+{
+  "name": "hotel-reservation-backend",
+  "version": "1.0.0",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2"
+  }
 }
